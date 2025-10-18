@@ -1,215 +1,129 @@
-import sqlite3
-import os # Módulo para verificar se o ficheiro existe (opcional, mas útil)
+from peewee import *
+import os
 
-# --- Documentação e Etapa 1: Conexão com a Base de Dados ---
+# --- ETAPA 1 - Criação da Base de Dados ---
+banco = SqliteDatabase('tarefas_orm.db')
 
-def conectar_db(nome_db="tarefas.db"):
-    """
-    Estabelece a conexão com a base de dados SQLite. 
-    Se o ficheiro da base de dados não existir, ele é criado.
+# --- ETAPA 2
+class BaseModel(Model):
+    class Meta:
+        database = banco
+
+class Tarefa(BaseModel):
+    id = AutoField()
+    nome = CharField()
+    estado = CharField(default='Pendente')
+
+    def __str__(self):
+        return f"[{self.id}] - {self.nome} ({self.estado})"
     
-    Parâmetros:
-    - nome_db (str): O nome do ficheiro da base de dados (padrão: 'tarefas.db').
-    
-    Retorna:
-    - sqlite3.Connection: O objeto de conexão ou None se houver um erro.
-    """
+def inicializar_banco():
+    banco.connect()
+    banco.create_tables([Tarefa])
+
+    print("Base de dados ORM e tabela 'Tarefa' inicializadas.")
+
+
+def adicionar_tarefa(nome_tarefa):
     try:
-        # A função connect() cria a base de dados se não existir.
-        conn = sqlite3.connect(nome_db)
-        return conn
-    except sqlite3.Error as e:
-        print(f"Erro ao conectar à base de dados: {e}")
-        return None
+        Tarefa.create(
+            nome=nome_tarefa,
+            estado='Pendente'
+        )
+        print(f'Tarefa {nome_tarefa} adicionada com sucesso!')
 
-# --- Documentação e Etapa 2: Criação da Tabela ---
+    except Exception as e:
+        print(f'Erro ao adicionar tarefa: {e}')
 
-def criar_tabela(conn):
-    """
-    Cria a tabela 'tarefas' na base de dados se esta não existir.
-    
-    Parâmetros:
-    - conn (sqlite3.Connection): O objeto de conexão com a base de dados.
-    """
-    sql_criar_tabela = """
-    CREATE TABLE IF NOT EXISTS tarefas (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nome TEXT NOT NULL,
-        estado TEXT NOT NULL
-    );
-    """
+def deletar_tarefa(id_tarefa):
     try:
-        cursor = conn.cursor()
-        cursor.execute(sql_criar_tabela)
-        # Não precisamos de conn.commit() para CREATE TABLE, mas é boa prática.
-        conn.commit() 
-        print("Tabela 'tarefas' verificada/criada com sucesso.")
-    except sqlite3.Error as e:
-        print(f"Erro ao criar a tabela: {e}")
-
-# --- Documentação e Etapa 3: Adicionar Tarefa (CREATE) ---
-
-def adicionar_tarefa(conn, nome_tarefa):
-    """
-    Insere uma nova tarefa na base de dados com o estado inicial 'Pendente'.
-    
-    Parâmetros:
-    - conn (sqlite3.Connection): O objeto de conexão.
-    - nome_tarefa (str): A descrição da tarefa a ser adicionada.
-    """
-    sql_inserir = """
-    INSERT INTO tarefas (nome, estado) 
-    VALUES (?, 'Pendente');
-    """
-    try:
-        cursor = conn.cursor()
-        # O '?' é um placeholder seguro para evitar ataques de injeção SQL.
-        cursor.execute(sql_inserir, (nome_tarefa,))
-        conn.commit() # Confirma a transação, guardando os dados de forma permanente.
-        print(f"Tarefa '{nome_tarefa}' adicionada com sucesso!")
-    except sqlite3.Error as e:
-        print(f"Erro ao adicionar tarefa: {e}")
-
-# --- Documentação e Etapa 4: Deletar Tarefas (DELETE) ---
-
-def deletar_tarefa(conn, id_tarefa):
-
-    sql_deletar = """
-    DELETE FROM tarefas
-    WHERE id = ?;
-    """
-
-    try: 
-        cursor = conn.cursor()
-        cursor.execute(sql_deletar, (id_tarefa,))
-        conn.commit()
-
-        if cursor.rowcount > 0:
-            print(f"Tarefa de id {id_tarefa} deletada com sucesso!")
+        tarefa_obj = Tarefa.get_or_none(Tarefa.id == id_tarefa)
+        
+        if tarefa_obj:
+            tarefa_obj.delete_instance()
+            print(f'Tarefa com id [{id_tarefa}] deletada com sucesso!')
         else:
-            print(f"Tarefa com id {id_tarefa} não encontrada!")
+            print(f'Não foi possível encontrar a tarefa com id [{id_tarefa}]')
 
-    except sqlite3.Error as e:
+    except Exception as e:
         print(f"Erro ao deletar tarefa: {e}")
-        
-# --- Documentação e Etapa 5: Visualizar Tarefas (READ) ---
 
-def ver_tarefas(conn):
-    """
-    Seleciona e exibe todas as tarefas da base de dados.
+def visualizar_tarefas():
+    tarefas = Tarefa.select().order_by(Tarefa.estado, Tarefa.id)
+
+    if not tarefas.exists():
+        print('\nNão há tarefas registradas!')
+        return
     
-    Parâmetros:
-    - conn (sqlite3.Connection): O objeto de conexão.
-    """
-    sql_selecionar = "SELECT id, nome, estado FROM tarefas ORDER BY estado, id;"
+    print('--- Lista de Tarefas ---')
+    for tarefa in tarefas:
+        print(tarefa)
+    print('-'*15)
+
+def concluir_tarefa(id_tarefa):
     try:
-        cursor = conn.cursor()
-        cursor.execute(sql_selecionar)
-        tarefas = cursor.fetchall() # Obtém todos os resultados da query.
-        
-        if not tarefas:
-            print("\nNão há tarefas registadas.")
-            return
 
-        print("\n--- Lista de Tarefas ---")
-        for tarefa in tarefas:
-            id_t, nome_t, estado_t = tarefa
-            # Formatação para melhor visualização
-            print(f"[{id_t}] - {nome_t} ({estado_t})")
-        print("------------------------")
-
-    except sqlite3.Error as e:
-        print(f"Erro ao visualizar tarefas: {e}")
-
-# --- Documentação e Etapa 6: Concluir Tarefa (UPDATE) ---
-
-def concluir_tarefa(conn, id_tarefa):
-    """
-    Atualiza o estado de uma tarefa específica para 'Concluída'.
-    
-    Parâmetros:
-    - conn (sqlite3.Connection): O objeto de conexão.
-    - id_tarefa (int): O ID da tarefa a ser atualizada.
-    """
-    sql_atualizar = """
-    UPDATE tarefas
-    SET estado = 'Concluída'
-    WHERE id = ? AND estado = 'Pendente';
-    """
-    try:
-        cursor = conn.cursor()
-        cursor.execute(sql_atualizar, (id_tarefa,))
-        conn.commit()
-        
-        if cursor.rowcount > 0:
-            print(f"Tarefa com ID {id_tarefa} marcada como Concluída!")
+        tarefa_obj = Tarefa.get_or_none(Tarefa.id == id_tarefa)
+        if tarefa_obj and tarefa_obj.estado == 'Pendente':
+            tarefa_obj.estado = 'Concluída'
+            tarefa_obj.save()
+            print(f'Tarefa com id [{id_tarefa} concluída!]')
+        elif tarefa_obj:
+            print(f'A tarefa com id {id_tarefa} já havia sido concluída.')
         else:
-            print(f"Tarefa com ID {id_tarefa} não encontrada ou já estava Concluída.")
+            print(f'Tarefa com id [{id_tarefa}] não foi encontrada.')
 
-    except sqlite3.Error as e:
-        print(f"Erro ao concluir tarefa: {e}")
-
-
-# --- Documentação e Etapa 7: Menu Principal (Interface) ---
+    except Exception as e:
+        print(f'Erro ao concluir tarefa: {e}')
 
 def menu_principal():
-    """
-    Apresenta o menu ao utilizador e gere a lógica da aplicação.
-    """
-    # 1. Conexão e Inicialização
-    conn = conectar_db()
-    if conn is None:
-        return # Sai se não conseguir conectar
-    
-    # 2. Criação da Tabela
-    criar_tabela(conn)
+    inicializar_banco()
 
     while True:
-        print("\n=== GESTÃO DE TAREFAS (SQLite) ===")
+        print("\n=== GESTÃO DE TAREFAS ===")
         print("1. Adicionar nova tarefa")
-        print("2. Excluir Tarefa")
-        print("3. Ver todas as tarefas")
-        print("4. Concluir uma tarefa")
+        print("2. Ver todas as tarefas")
+        print("3. Concluir uma tarefa")
+        print("4. Deletar uma tarefa")
         print("5. Sair")
+
+        escolha = int(input('Escolha uma opção: '))
         
-        escolha = input("Escolha uma opção: ")
-        
-        if escolha == '1':
-            nome = input("Descrição da nova tarefa: ")
-            if nome:
-                adicionar_tarefa(conn, nome)
-            else:
-                print("A descrição não pode ser vazia.")
-                
-        elif escolha == '2':
-            ver_tarefas(conn)
+        match escolha:
+            case 1:
+                desc_tarefa = str(input('Escreva a descrição da tarefa: '))
+                if desc_tarefa:
+                    adicionar_tarefa(desc_tarefa)
+                else:
+                    print("A descrição não pode ser vazia.")
 
-            try:
-                id_t = int(input("Digite o id da tarefa que irá deletar: "))
-                deletar_tarefa(conn, id_t)
-            except ValueError:
-                print("ID inválido. Digite um número válido.")
-
-        elif escolha == '3':
-            ver_tarefas(conn)
+            case 2:
+                visualizar_tarefas()
             
-        elif escolha == '4':
-            ver_tarefas(conn) # Mostrar IDs antes de pedir
-            try:
-                id_t = int(input("Digite o ID da tarefa a concluir: "))
-                concluir_tarefa(conn, id_t)
-            except ValueError:
-                print("ID inválido. Por favor, digite um número válido.")
-                
-        elif escolha == '5':
-            print("A fechar a aplicação e a guardar alterações. Até logo!")
-
-            conn.close() # Fecha a conexão com a base de dados
-            break
+            case 3:
+                visualizar_tarefas()
+                id_t = int(input('Digite o id da tarefa a concluir: '))
+                try:
+                    concluir_tarefa(id_t)
+                except ValueError:
+                    print('Id inválido. Por favor, digite um número!')
             
-        else:
-            print("Opção inválida. Tente novamente.")
+            case 4:
+                visualizar_tarefas()
+                id_t = int(input('Digite o id da tarefa a deletar: '))
+                try:
+                    deletar_tarefa(id_t)
 
-# Execução do Programa
-if __name__ == "__main__": # __main__ funciona como um construtor
+                except ValueError:
+                    print('Id inválido. Por favor, digite um número!')
+
+            case 5:
+                print('Fechando a aplicação... Até logo ;)')
+                banco.close()
+                break
+
+            case _:
+                print('Opção inválida! Tente novamente.')
+
+if __name__ == "__main__":
     menu_principal()
