@@ -19,7 +19,7 @@ class Tarefa(BaseModel):
     estado = CharField(default='Pendente')
 
     def __str__(self):
-        return f"[{self.id}] - {self.nome} ({self.estado})"
+        return f"{self.nome} ({self.estado})"
     
 
 # --- Função de Inicialização ---
